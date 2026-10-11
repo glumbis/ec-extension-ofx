@@ -1,0 +1,32 @@
+[package]
+name = "effectcraft-ofx"
+description = "OpenFX (OFX 1.4) image-effect host: loads native OFX plug-in bundles and registers them as effects (plug-in API v2). Runs inside the OpenFX effect helper process, never inside EffectCraft"
+publish = false
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# A plug-in host has to speak the C ABI and call into native code, which needs `unsafe`; that is
+# why it lives in the helper, outside the EffectCraft workspace (which forbids `unsafe`). Every `unsafe` block lives in
+# this crate and sits behind `catch_unwind` + null/magic checks (see `ffi.rs`); the crate keeps
+# the workspace's other never-crash lints (see `lib.rs`).
+
+[dependencies]
+effectcraft-effects = { workspace = true }
+log = { workspace = true }
+serde_json = { workspace = true }
+
+# Native plug-in binaries only exist on native targets (on wasm32 the crate is empty).
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+libloading = { workspace = true }
+
+[dev-dependencies]
+effectcraft-effects = { workspace = true }
+effectcraft-keyframe = { workspace = true }
+effectcraft-project = { workspace = true }
+serde_json = { workspace = true }
+
+# Stopping helper programs plug-ins leave behind (`shutdown`).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Diagnostics_ToolHelp", "Win32_System_Threading"] }

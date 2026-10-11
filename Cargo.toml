@@ -1,0 +1,52 @@
+# ec-extension-ofx: the OpenFX effect helper for EffectCraft (unofficial).
+#
+# A separate program that hosts OpenFX (OFX 1.4) image-effect plug-ins and serves them to
+# EffectCraft over EffectCraft's external effect helper protocol. Hosting native plug-ins needs
+# `unsafe` and runs closed-source code, so it runs in its own process: if a plug-in crashes, only
+# this helper dies, and EffectCraft shows the error and starts it again.
+#
+# Build: `cargo build --release`, then copy `target/release/effectcraft-helper-ofx` (`.exe` on
+# Windows) to `helpers/` next to EffectCraft. See README.md.
+[workspace]
+members = [".", "ofx-host"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+repository = "https://github.com/glumbis/ec-extension-ofx"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.95"
+
+[workspace.dependencies]
+# EffectCraft crates (the external helper interface). Switch to storytold/effectcraft once it is
+# merged upstream.
+effectcraft-effects = { git = "https://github.com/glumbis/effectcraft", branch = "claude/openfx-external-helper-jdpn38" }
+effectcraft-keyframe = { git = "https://github.com/glumbis/effectcraft", branch = "claude/openfx-external-helper-jdpn38" }
+effectcraft-project = { git = "https://github.com/glumbis/effectcraft", branch = "claude/openfx-external-helper-jdpn38" }
+effectcraft-helper-host = { git = "https://github.com/glumbis/effectcraft", branch = "claude/openfx-external-helper-jdpn38" }
+effectcraft-ofx = { path = "ofx-host" }
+log = "0.4"
+serde_json = { version = "1", features = ["float_roundtrip"] }
+libloading = "0.8"
+
+[package]
+name = "effectcraft-helper-ofx"
+description = "EffectCraft's OpenFX effect helper: loads .ofx plug-ins in its own process and serves them to EffectCraft"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+effectcraft-effects = { workspace = true }
+effectcraft-helper-host = { workspace = true }
+effectcraft-ofx = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+
+[profile.release]
+opt-level = 3

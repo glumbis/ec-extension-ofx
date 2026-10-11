@@ -1,0 +1,74 @@
+# Build and test the OpenFX helper on Windows, Linux and macOS: the helper, the test OFX plug-in
+# laid out as a bundle, the OFX host tests and the end-to-end helper tests against it, a --list
+# run, and release zips with SHA-256 checksums (uploaded as artifacts; attached to the release
+# when a tag v* is pushed).
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, bundle_dir: Win64, lib: ec_test_ofx.dll, exe: effectcraft-helper-ofx.exe }
+          - { os: ubuntu-latest, bundle_dir: Linux-x86-64, lib: libec_test_ofx.so, exe: effectcraft-helper-ofx }
+          - { os: macos-latest, bundle_dir: MacOS, lib: libec_test_ofx.dylib, exe: effectcraft-helper-ofx }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Format and lint
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+      - name: Build the helper
+        run: cargo build --release --locked
+      - name: Build the test OFX plug-in bundle
+        run: |
+          cargo build --release --manifest-path test-plugin/Cargo.toml
+          mkdir -p "target/ofx-test/ec-test-ofx.ofx.bundle/Contents/${{ matrix.bundle_dir }}"
+          cp "test-plugin/target/release/${{ matrix.lib }}" "target/ofx-test/ec-test-ofx.ofx.bundle/Contents/${{ matrix.bundle_dir }}/ec-test-ofx.ofx"
+      - name: Tests (OFX host + end to end through the helper)
+        run: EC_TEST_OFX_BUNDLE="$PWD/target/ofx-test/ec-test-ofx.ofx.bundle" cargo test --release --workspace --locked
+      - name: The helper lists the test plug-in
+        run: |
+          out=$("target/release/${{ matrix.exe }}" --list target/ofx-test)
+          echo "$out"
+          echo "$out" | grep -q "org.effectcraft.test.invert"
+      - name: Package
+        run: |
+          if [ "${{ matrix.os }}" = windows-latest ]; then pwsh -File package.ps1; else ./package.sh; fi
+          mv dist/SHA256SUMS.txt "dist/SHA256SUMS-${{ matrix.os }}.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ec-extension-ofx-${{ matrix.os }}
+          path: |
+            dist/*.zip
+            dist/*.tar.gz
+            dist/SHA256SUMS-*.txt
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" --title "ec-extension-ofx $GITHUB_REF_NAME (unofficial)" --notes "Unofficial OpenFX helper for EffectCraft. See README.md."
+          gh release upload "$GITHUB_REF_NAME" dist/*.zip dist/SHA256SUMS-*.txt --clobber
