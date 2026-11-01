@@ -314,9 +314,32 @@ macro_rules! var_fn {
             let va = VarArgs::new([a1, a2, a3, a4, a5, a6]);
             guard(move || $body(h, va))
         }
-        #[cfg(not(windows))]
+        #[cfg(all(not(windows), not(all(target_vendor = "apple", target_arch = "aarch64"))))]
         extern "C" fn $name(h: Handle, i1: u64, i2: u64, i3: u64, i4: u64, i5: u64, f1: f64, f2: f64, f3: f64, f4: f64, f5: f64) -> OfxStatus {
             let va = VarArgs::new([i1, i2, i3, i4, i5], [f1, f2, f3, f4, f5]);
+            guard(move || $body(h, va))
+        }
+        // Apple Silicon: `_x1`..`_x7` use up the remaining integer registers, so `s1`.. are read
+        // from the stack slots the variadic caller filled (see the `ffi` module docs).
+        #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn $name(
+            h: Handle,
+            _x1: u64,
+            _x2: u64,
+            _x3: u64,
+            _x4: u64,
+            _x5: u64,
+            _x6: u64,
+            _x7: u64,
+            s1: u64,
+            s2: u64,
+            s3: u64,
+            s4: u64,
+            s5: u64,
+            s6: u64,
+        ) -> OfxStatus {
+            let va = VarArgs::new([s1, s2, s3, s4, s5, s6]);
             guard(move || $body(h, va))
         }
     };
@@ -333,7 +356,29 @@ macro_rules! var_fn_t {
             let va = VarArgs::new([t.to_bits(), a2, a3, a4, a5, a6]);
             guard(move || $body(h, va))
         }
-        #[cfg(not(windows))]
+        // Apple Silicon: the fixed time arrives in d0; the variadic arguments are on the stack.
+        #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn $name(
+            h: Handle,
+            t: f64,
+            _x1: u64,
+            _x2: u64,
+            _x3: u64,
+            _x4: u64,
+            _x5: u64,
+            _x6: u64,
+            _x7: u64,
+            s1: u64,
+            s2: u64,
+            s3: u64,
+            s4: u64,
+            s5: u64,
+        ) -> OfxStatus {
+            let va = VarArgs::new([t.to_bits(), s1, s2, s3, s4, s5]);
+            guard(move || $body(h, va))
+        }
+        #[cfg(all(not(windows), not(all(target_vendor = "apple", target_arch = "aarch64"))))]
         var_fn!($name, $body);
     };
 }
@@ -347,7 +392,29 @@ macro_rules! var_fn_t2 {
             let va = VarArgs::new([t1.to_bits(), t2.to_bits(), a3, a4, a5, a6]);
             guard(move || $body(h, va))
         }
-        #[cfg(not(windows))]
+        // Apple Silicon: both fixed times arrive in d0, d1; the out-pointers are on the stack.
+        #[cfg(all(target_vendor = "apple", target_arch = "aarch64"))]
+        #[allow(clippy::too_many_arguments)]
+        extern "C" fn $name(
+            h: Handle,
+            t1: f64,
+            t2: f64,
+            _x1: u64,
+            _x2: u64,
+            _x3: u64,
+            _x4: u64,
+            _x5: u64,
+            _x6: u64,
+            _x7: u64,
+            s1: u64,
+            s2: u64,
+            s3: u64,
+            s4: u64,
+        ) -> OfxStatus {
+            let va = VarArgs::new([t1.to_bits(), t2.to_bits(), s1, s2, s3, s4]);
+            guard(move || $body(h, va))
+        }
+        #[cfg(all(not(windows), not(all(target_vendor = "apple", target_arch = "aarch64"))))]
         var_fn!($name, $body);
     };
 }

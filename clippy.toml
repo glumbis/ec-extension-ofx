@@ -1,0 +1,6 @@
+# Same test allowances as EffectCraft's clippy.toml (the OFX host was written against it): tests
+# may unwrap, expect, panic and index; non-test code may not (see ofx-host/src/lib.rs).
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
