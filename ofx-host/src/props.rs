@@ -4,13 +4,32 @@
 //! (plug-ins may touch an effect's properties from several render threads) and lenient: setting
 //! an unknown property creates it, `int` and `double` properties convert into each other on read,
 //! and reading a property that was never set reports `kOfxStatErrUnknown` and logs the name once
-//! so missing host features show up in the log without flooding it.
+//! so missing host features show up in the log without flooding it. The exception is the
+//! [`APPENDABLE`] lists, which have zero values until a plug-in appends to them.
 
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CString, c_void};
 use std::sync::{Mutex, OnceLock, PoisonError};
 
-use crate::ffi::{K_STAT_ERR_BAD_HANDLE, K_STAT_ERR_BAD_INDEX, K_STAT_ERR_UNKNOWN, K_STAT_OK, OfxStatus, cstring};
+use crate::ffi::{
+    IE_CLIP_PREFS_SLAVE_PARAM, IE_PARAM_PAGE_ORDER, IE_SUPPORTED_COMPONENTS, IE_SUPPORTED_CONTEXTS, IE_SUPPORTED_PIXEL_DEPTHS, K_STAT_ERR_BAD_HANDLE,
+    K_STAT_ERR_BAD_INDEX, K_STAT_ERR_UNKNOWN, K_STAT_OK, OfxStatus, PP_CHOICE_OPTION, PP_PAGE_CHILD, cstring,
+};
+
+/// Multi-valued properties a plug-in fills one value at a time during describe. The OFX spec gives
+/// them zero values by default on the descriptors that carry them, and the C++ support library
+/// reads their dimension before appending (`addSupportedContext`, `addSupportedComponent`,
+/// `appendOption`…), treating `kOfxStatErrUnknown` as an inadequate host. So an unset one has
+/// dimension 0, which is what lets openfx-misc and other support-library plug-ins describe.
+pub const APPENDABLE: &[&str] = &[
+    IE_SUPPORTED_CONTEXTS,
+    IE_SUPPORTED_PIXEL_DEPTHS,
+    IE_SUPPORTED_COMPONENTS,
+    IE_CLIP_PREFS_SLAVE_PARAM,
+    IE_PARAM_PAGE_ORDER,
+    PP_PAGE_CHILD,
+    PP_CHOICE_OPTION,
+];
 
 /// The marker at the start of every [`PropSet`], used to reject handles that are not ours.
 pub const PROPSET_MAGIC: u32 = 0x4F46_5850; // "OFXP"
@@ -223,6 +242,7 @@ impl PropSet {
     pub fn dimension(&self, name: &str) -> Result<i32, OfxStatus> {
         match self.lock().get(name) {
             Some(v) => Ok(v.len() as i32),
+            None if APPENDABLE.contains(&name) => Ok(0),
             None => {
                 note_unknown(name);
                 Err(K_STAT_ERR_UNKNOWN)
@@ -255,5 +275,21 @@ pub fn as_string(v: &PVal) -> Option<String> {
     match v {
         PVal::Str(s) => Some(s.to_string_lossy().into_owned()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn appendable_lists_start_empty() {
+        // The support library's addSupportedContext: read the dimension, then set at that index.
+        let ps = PropSet::new();
+        assert_eq!(ps.dimension(IE_SUPPORTED_CONTEXTS), Ok(0));
+        ps.put_str(IE_SUPPORTED_CONTEXTS, "OfxImageEffectContextFilter");
+        assert_eq!(ps.dimension(IE_SUPPORTED_CONTEXTS), Ok(1));
+        // Every other unset property is still unknown, so missing host features stay visible.
+        assert_eq!(ps.dimension("OfxImageEffectPropNotAProperty"), Err(K_STAT_ERR_UNKNOWN));
     }
 }

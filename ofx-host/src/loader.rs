@@ -228,6 +228,7 @@ fn load_binary(bin: &Path, bundle: &str, report: &mut LoadReport) {
     let n = std::panic::catch_unwind(|| unsafe { count() }).unwrap_or(0).clamp(0, 4096);
     let lock = Arc::new(Mutex::new(()));
     let mut here: Vec<LoadedEffect> = Vec::new();
+    let mut plugins: Vec<(*mut OfxPlugin, String, (u32, u32))> = Vec::new();
     for i in 0..n {
         // SAFETY: as above.
         let p = std::panic::catch_unwind(|| unsafe { get(i) }).unwrap_or(std::ptr::null_mut());
@@ -235,7 +236,18 @@ fn load_binary(bin: &Path, bundle: &str, report: &mut LoadReport) {
             report.errors.push(format!("{label}: OfxGetPlugin({i}) returned null"));
             continue;
         }
-        match describe_plugin(p, bin, bundle, lock.clone()) {
+        // SAFETY: a non-null OfxPlugin* from the binary; the struct is static data in the plug-in.
+        let pr = unsafe { &*p };
+        let id = effect_id(unsafe { str_arg(pr.plugin_identifier) }.unwrap_or(""));
+        plugins.push((p, id, (pr.plugin_version_major, pr.plugin_version_minor)));
+    }
+    for (p, id, version) in &plugins {
+        // A binary may carry several versions of one plug-in (openfx-misc keeps old majors for old
+        // projects). Hosts use the highest version, so the others aren't described or registered.
+        if plugins.iter().any(|(_, other, v)| other == id && v > version) {
+            continue;
+        }
+        match describe_plugin(*p, bin, bundle, lock.clone()) {
             Ok(Some(e)) => here.push(e),
             Ok(None) => {}
             Err(e) => report.errors.push(format!("{label}: {e}")),
